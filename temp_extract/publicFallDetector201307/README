@@ -1,0 +1,107 @@
+2014-09-23 Corrected a small tipo. The time between samples is 0.02 s. In the first version this number was incorrectly stated as 0.02 ms. However, the frequency was right, 50 Hz.
+
+---------------
+For questions, ask Carlos Medrano (ctmedra@unizar.es)
+
+1) Explanation of the data set
+2) Some Python scripts to get the data
+
+Note: some Python knowledge is welcome.
+
+1) Explanation of the data set
+The directory data201307 (or a similar name) contains the data for falls and ADL. It is divided in subdirectories by person. People carried the phone in their pockets, except in some files, see below. Data are interpolated at 50 Hz. For instance, the directory person0 includes:
+
+adlProcessedVector  fallProcessedVector
+
+and adlProcessedVector includes the files:
+
+0adlPV.dat
+0adlPVHbag.dat (only for some people: the data in this file correspond to people carrying the phone in a hand bag)
+
+Both files have 3*N rows (N=number of ADL). Each row corresponds to the acceleration along one axis (x, y and z in this order). The data has been interpolated at 50 Hz, so two consecutives samples are 0.02 s apart. Units are m/s**2
+
+
+In the directory fallProcessedVector you have four files
+
+0fallPV.dat  0fallPVKeys.data
+0fallPVHbag.dat  0fallPVHbagKeys.dat
+
+The first file has the same format as the ADL file. The second file is associated to the first one and contains in each row the name of the original file (raw data). This name can be used to recover the kind of fall. Therefore, line n in 0fallPVKeys.dat corresponds to lines 3*n, 3*n+1 and 3*n+2 in 0fallPV.dat (assuming you start numbering the lines with n=0). A line like :
+
+0_back_free_pock_left_2.dat
+
+means that the corresponding acceleration values comes from a backwards fall. There are 8 types of falls. Each one has a key name:
+
+'forw_free','forw_prot','latl', 'latr', 'back', 'obst','sync','empt':
+
+(forward, forward with protection strategies, lateral left, lateral right, backwards, hitting an obstacle in the fall, syncope, and sitting on empty chair)
+
+So if the name contains 'back', it is a backwards fall.
+
+The files 0fallPVHbag.dat and 0fallPVHbagKeys.dat have the same format but refer to data takan with the phone in a hand bag.
+
+For a different person just change 0 by the person number in the previous file names.
+
+For instance, from within Python and assuming you are in the directory publicFallDetector201307 (or a similar name) you could do the following to get the data:
+---
+import scipy as sc
+
+adlV=sc.loadtxt('data201307/person0/adlProcessedVector/0adlPV.dat')
+
+adlV[0::3,:] contains the x-axis
+adlV[1::3,:] contains the y-axis and
+adlV[2::3,:] contains the z-axis
+---
+
+and if you want to get the magnitude just do:
+
+adl=sc.sqrt(adlV[0::3]**2+adlV[1::3]**2+adlV[2::3]**2)
+
+then you will have a vector of nx301 values (n different ADL, 6 s time window at 50 Hz)
+
+In fact, we only worked with the central 1s, so we did:
+
+adl2=adl[:,125:176]
+
+#################################################################
+
+2) Some python scripts to get the data
+
+From within python you can do the following (assuming you are inside publicFallDetector201307):
+
+import scipy as sc
+import fallDetection_v0_9 as fD
+
+adlAll=fD.getAllDataAsListNew('adl','pocket')
+
+Then you have a tuple of all ADL: adlAll[0] contains the ADL from person 0, etc
+You can get all of them as a single matrix if you prefer:
+
+adlAll=sc.concatenate(adlAll)
+
+Then, it will be a matrix nx301. You can get the central 1 s as
+
+adlAll=adlAll[:,125:176]
+print adlAll.shape
+
+Instead of the parameter 'pocket' in getAllDataAsListNew, you could use the parameter 'hbag' to get the ADL taken with the phone in a hand bag.
+
+You can do the same for falls:
+
+fallAll=fD.getAllDataAsListNew('fall','pocket')
+fallAll=sc.concatenate(fallAll)
+fallAll=fallAll[:,125:176]
+print fallAll.shape
+
+Again, you can pass the parameter 'hbag' instead of 'pocket'.
+
+If you want to perform a data analysis per type of fall you can do:
+
+fallAll=fD.getFallDataAsDictWKeys('pocket')
+
+Now, fallAl is a dictionary. It has 8 keys corresponding to each type of fall. For instance, the entry 'back' in the dictionary contains all the backwards falls.
+
+print fallAll.keys()
+print fallAll['back'].shape
+
+For more details about the function, see the source code or use help within python.
