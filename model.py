@@ -287,6 +287,48 @@ labels = labels[random_indices]
 # Check the shape of the combined data and labels
 print("Shape of combined data:", combined_data.shape)
 print("Shape of labels:", labels.shape)
+
+# Train-Test Split
+X_train, X_test, y_train, y_test = train_test_split(combined_data, labels, test_size=0.3, random_state=42)
+
+'''execute'''
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dense, LSTM
+
+# Assuming combined_data and labels are your feature matrix and target labels, respectively
+
+# Define the input shape based on the number of features (assuming 153 features)
+input_shape = (combined_data.shape[1], 1)  # (Time steps, Features)
+
+# Reshape the combined_data to fit the input shape
+X = combined_data.reshape((combined_data.shape[0], combined_data.shape[1], 1))
+
+# Define the DeepSense model
+model = Sequential([
+    Conv1D(filters=32, kernel_size=3, activation='relu', input_shape=input_shape),
+    MaxPooling1D(pool_size=2),
+    Conv1D(filters=64, kernel_size=3, activation='relu'),
+    MaxPooling1D(pool_size=2),
+    LSTM(64, return_sequences=True),
+    Flatten(),
+    Dense(64, activation='relu'),
+    Dense(1, activation='sigmoid')  # Binary classification output
+])
+
+# Compile the model
+model.compile(optimizer='adam',
+              loss='binary_crossentropy',
+              metrics=['accuracy'])
+
+# Train the model
+model.fit(X, labels, epochs=10, batch_size=32, validation_split=0.1)
+
+loss, accuracy = model.evaluate(X, labels)
+print(f'Test Loss: {loss}')
+print(f'Test Accuracy: {accuracy}')
+
 '''execute'''
 # Train the DeepSense model
 history = model.fit(X, labels, epochs=10, batch_size=32, validation_split=0.1)
