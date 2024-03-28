@@ -1,4 +1,9 @@
-'''execute dataset preprocessing code'''
+import numpy as np
+from skl2onnx import convert_sklearn
+from skl2onnx.common.data_types import FloatTensorType
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dense, LSTM
+import onnx
 import scipy
 import time
 import os
@@ -12,10 +17,12 @@ from xgboost import XGBClassifier
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dense, LSTM
-from sklearn.metrics import confusion_matrix , accuracy_score, precision_score, recall_score, f1_score
+from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
 import onnx
 from tensorflow.keras.models import model_from_json
 import onnxmltools
+import tf2onnx
+import onnxruntime as ort
 from tensorflow.keras.models import save_model
 
 
@@ -292,38 +299,61 @@ model.compile(optimizer='adam',
               metrics=['accuracy'])
 
 # Train the model
-model.fit(X, labels, epochs=8, batch_size=32, validation_split=0.1)
+#model.fit(X, labels, epochs=8, batch_size=32, validation_split=0.1)
 
-loss, accuracy = model.evaluate(X, labels)
-print(f'Test Loss: {loss}')
-print(f'Test Accuracy: {accuracy}')
+#loss, accuracy = model.evaluate(X, labels)
+#print(f'Test Loss: {loss}')
+#print(f'Test Accuracy: {accuracy}')
 
 '''execute deepsense+xgboost'''
-'''
 history = model.fit(X, labels, epochs=8, batch_size=32, validation_split=0.1)
 deep_sense_predictions_train = model.predict(X_train)
 deep_sense_predictions_test = model.predict(X_test)
 
-xgb_model = XGBClassifier()
-xgb_model.fit(deep_sense_predictions_train, y_train)
-xgb_predictions = xgb_model.predict(deep_sense_predictions_test)
-xgb_accuracy = accuracy_score(y_test, xgb_predictions)
-print("XGBoost Accuracy:", xgb_accuracy)
+X_test_float32 = X_test.astype(np.float32)
+X_test_reshaped = X_test_float32.reshape((X_test_float32.shape[0], X_test_float32.shape[1], 1))
 
-# Calculate confusion matrix for XGBoost predictions
-conf_matrix = confusion_matrix(y_test, xgb_predictions)
+# Convert Keras model to ONNX format
+input_signature = [tf.TensorSpec([None, combined_data.shape[1], 1], tf.float32)]
+onnx_model_tf, _ = tf2onnx.convert.from_keras(model, input_signature, opset=13)
+output_names = [output.name for output in onnx_model_tf.graph.output]
+output_infos = [onnx.helper.make_tensor_value_info(name, onnx.TensorProto.FLOAT, [None]) for name in output_names]
+output_names.extend(["X_test", "y_test"])  # Assuming X_test and y_test are the names of the outputs
+
+# Extend the list of outputs with the new ones
+onnx_model_tf.graph.output.extend(output_infos)
+
+onnx.save_model(onnx_model_tf, 'deepsense_model.onnx')
+
+onnx_model = onnx.load("deepsense_model.onnx")
+
+#input_names = [input.name for input in onnx_model.graph.input]
+#print("Input names:", input_names)
+
+# Run inference using ONNX Runtime
+sess = ort.InferenceSession("deepsense_model.onnx")
+res = sess.run(None, {'args_0' : X_test_reshaped})
+print(res[0])
+# Calculate accuracy score for DeepSense predictions
+accuracy = accuracy_score(y_test, np.round(res[0]))
+
+# Calculate confusion matrix for DeepSense predictions
+conf_matrix_deep_sense = confusion_matrix(y_test, np.round(res[0]))
 
 # Extract true negatives (TN), false positives (FP), false negatives (FN), and true positives (TP)
-TN, FP, FN, TP = conf_matrix.ravel()
+TN_deep_sense, FP_deep_sense, FN_deep_sense, TP_deep_sense = conf_matrix_deep_sense.ravel()
 
-# Calculate sensitivity (recall), specificity, precision, and F1-score
-sensitivity = recall_score(y_test, xgb_predictions)
-specificity = TN / (TN + FP)
-precision = precision_score(y_test, xgb_predictions)
-f1 = f1_score(y_test, xgb_predictions)
+# Calculate sensitivity (recall), specificity, precision, and F1-score for DeepSense
+sensitivity_deep_sense = recall_score(y_test, np.round(res[0]))
+specificity_deep_sense = TN_deep_sense / (TN_deep_sense + FP_deep_sense)
+precision_deep_sense = precision_score(y_test, np.round(res[0]))
+f1_deep_sense = f1_score(y_test, np.round(res[0]))
 
-print("Sensitivity (Recall):", sensitivity)
-print("Specificity:", specificity)
-print("Precision:", precision)
-print("F1-Score:", f1)
-'''
+# Print the metrics for DeepSense model
+print("DeepSense Model Metrics:")
+print("Accuracy:", accuracy)
+print("Sensitivity (Recall):", sensitivity_deep_sense)
+print("Specificity:", specificity_deep_sense)
+print("Precision:", precision_deep_sense)
+print("F1-Score:", f1_deep_sense)
+print("Conversion succeeded")

@@ -1,22 +1,20 @@
-'''execute dataset preprocessing code'''
+import numpy as np
+import onnx
+from skl2onnx.common.data_types import FloatTensorType
 import scipy
 import time
 import os
-import numpy as np
+from sklearn.svm import SVC
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+import skl2onnx
 import numpy.lib.scimath as sc
 from sklearn.model_selection import train_test_split
 from skl2onnx import convert_sklearn
 from skl2onnx.common.data_types import FloatTensorType
 from sklearn.metrics import accuracy_score
 from xgboost import XGBClassifier
-import tensorflow as tf
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dense, LSTM
-from sklearn.metrics import confusion_matrix , accuracy_score, precision_score, recall_score, f1_score
-import onnx
-from tensorflow.keras.models import model_from_json
-import onnxmltools
-from tensorflow.keras.models import save_model
+import onnxruntime as ort
 
 
 ####################
@@ -274,56 +272,59 @@ labels = labels[random_indices]
 # Train-Test Split
 X_train, X_test, y_train, y_test = train_test_split(combined_data, labels, test_size=0.3, random_state=42)
 
-'''execute deepsense'''
-input_shape = (combined_data.shape[1], 1)  # (Time steps, Features)
-X = combined_data.reshape((combined_data.shape[0], combined_data.shape[1], 1))
-model = Sequential([
-    Conv1D(filters=32, kernel_size=3, activation='relu', input_shape=input_shape),
-    MaxPooling1D(pool_size=2),
-    Conv1D(filters=64, kernel_size=3, activation='relu'),
-    MaxPooling1D(pool_size=2),
-    LSTM(64, return_sequences=True),
-    Flatten(),
-    Dense(64, activation='relu'),
-    Dense(1, activation='sigmoid')  # Binary classification output
-])
-model.compile(optimizer='adam',
-              loss='binary_crossentropy',
-              metrics=['accuracy'])
+# Load the deepsense model
+deepsense_model_path = "deepsense_model.onnx"
+deepsense_sess = ort.InferenceSession(deepsense_model_path)
 
-# Train the model
-model.fit(X, labels, epochs=8, batch_size=32, validation_split=0.1)
+# Assuming X_test is your test data
+X_test_float32 = X_test.astype(np.float32)
+X_test_reshaped = X_test_float32.reshape((X_test_float32.shape[0], X_test_float32.shape[1], 1))
 
-loss, accuracy = model.evaluate(X, labels)
-print(f'Test Loss: {loss}')
-print(f'Test Accuracy: {accuracy}')
+X_train_float32 = X_train.astype(np.float32)
+X_train_reshaped = X_train_float32.reshape((X_train_float32.shape[0], X_train_float32.shape[1], 1))
 
-'''execute deepsense+xgboost'''
-'''
-history = model.fit(X, labels, epochs=8, batch_size=32, validation_split=0.1)
-deep_sense_predictions_train = model.predict(X_train)
-deep_sense_predictions_test = model.predict(X_test)
+# Run inference using the deepsense model to obtain its outputs
+deepsense_outputs_train = deepsense_sess.run(None, {'args_0': X_train_reshaped})[0]
+deepsense_outputs_test = deepsense_sess.run(None, {'args_0': X_test_reshaped})[0]
 
-xgb_model = XGBClassifier()
-xgb_model.fit(deep_sense_predictions_train, y_train)
-xgb_predictions = xgb_model.predict(deep_sense_predictions_test)
+# Train an XGBoost model using the outputs obtained from the deepsense model
+xgb_model = RandomForestClassifier()
+xgb_model.fit(deepsense_outputs_train, y_train)
+
+# Convert the trained XGBoost model to ONNX format
+initial_type = [("float_input", FloatTensorType([None, deepsense_outputs_train.shape[1]]))]
+onx = convert_sklearn(xgb_model, initial_types=initial_type, target_opset=12)
+
+# Save the ONNX model to a file
+xgb_model_path = "xgboost_model.onnx"
+with open(xgb_model_path, "wb") as f:
+    f.write(onx.SerializeToString())
+
+# Load the XGBoost model using ONNX Runtime
+xgb_sess = ort.InferenceSession(xgb_model_path, providers=["CPUExecutionProvider"])
+xgb_input_name = xgb_sess.get_inputs()[0].name
+xgb_label_name = xgb_sess.get_outputs()[0].name
+
+# Use the deepsense model's outputs as input to the XGBoost model for predictions
+xgb_predictions = xgb_sess.run([xgb_label_name], {xgb_input_name: deepsense_outputs_test.astype(np.float32)})[0]
+
+# Calculate accuracy and other metrics
 xgb_accuracy = accuracy_score(y_test, xgb_predictions)
 print("XGBoost Accuracy:", xgb_accuracy)
 
 # Calculate confusion matrix for XGBoost predictions
-conf_matrix = confusion_matrix(y_test, xgb_predictions)
+#conf_matrix = confusion_matrix(y_test, xgb_predictions)
 
 # Extract true negatives (TN), false positives (FP), false negatives (FN), and true positives (TP)
-TN, FP, FN, TP = conf_matrix.ravel()
+#TN, FP, FN, TP = conf_matrix.ravel()
 
 # Calculate sensitivity (recall), specificity, precision, and F1-score
-sensitivity = recall_score(y_test, xgb_predictions)
-specificity = TN / (TN + FP)
-precision = precision_score(y_test, xgb_predictions)
-f1 = f1_score(y_test, xgb_predictions)
+#sensitivity = recall_score(y_test, xgb_predictions)
+#specificity = TN / (TN + FP)
+#precision = precision_score(y_test, xgb_predictions)
+#f1 = f1_score(y_test, xgb_predictions)
 
-print("Sensitivity (Recall):", sensitivity)
-print("Specificity:", specificity)
-print("Precision:", precision)
-print("F1-Score:", f1)
-'''
+#print("Sensitivity (Recall):", sensitivity)
+#print("Specificity:", specificity)
+#print("Precision:", precision)
+#print("F1-Score:", f1)
