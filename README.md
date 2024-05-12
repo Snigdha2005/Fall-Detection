@@ -6,13 +6,10 @@ In today's digitized world, there is a vast amount of handwritten data that requ
 
 ## TechStack:
 
-Programming Language - Python
-
-Libraries - Tensorflow, PyTorch, OpenCV
-
-User Interface - Tkinter
-
-Dataset - https://www.kaggle.com/datasets/dhruvildave/english-handwritten-characters-dataset
+- Programming Language - Python
+- Libraries - Tensorflow, PyTorch, OpenCV
+- User Interface - Tkinter
+- Dataset - https://www.kaggle.com/datasets/dhruvildave/english-handwritten-characters-dataset
 
 ## Team Members:
 
